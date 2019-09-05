@@ -102,7 +102,7 @@ namespace DepScanner
                     foreach (var srcFile in srcFiles)
                     {
                         var srcDoc = XDocument.Parse(srcFile.Item2);
-                        var srcReference = srcDoc.Descendants().FirstOrDefault(d => d.Attribute("Version")?.Value.Contains(dep.Name.ToString(), StringComparison.OrdinalIgnoreCase) == true);
+                        var srcReference = srcDoc.Descendants().FirstOrDefault(d => d.Attribute("Version")?.Value.Contains(dep.Name.LocalName, StringComparison.OrdinalIgnoreCase) == true);
 
                         if (srcReference == null)
                         {
