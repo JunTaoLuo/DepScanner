@@ -24,33 +24,32 @@ namespace DepScanner
             Console.WriteLine($"Scanning {dir} with input {input}");
 
             var dependencies = new List<Dependency>();
+            var allProjectFiles = new List<Tuple<string, string>>();
             var srcProjectFiles = new List<Tuple<string, string>>();
 
             foreach (var file in Directory.GetFiles(dir, "*.*proj", SearchOption.AllDirectories))
             {
-                if (file.Contains($"{Path.DirectorySeparatorChar}test{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}testassets{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}samples{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}perf{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}eng{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}ref{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}submodules{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}stress{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}benchmark{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}benchmarks{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}FunctionalTests{Path.DirectorySeparatorChar}")
-                    || file.Contains($"{Path.DirectorySeparatorChar}.packages{Path.DirectorySeparatorChar}"))
-                {
-                    continue;
-                }
-
                 var text = File.ReadAllText(file);
 
                 if (text.Contains("<PackageReference") || text.Contains("<Reference"))
                 {
-                    srcProjectFiles.Add(new Tuple<string, string>(file.Replace(dir, string.Empty), text));
+                    allProjectFiles.Add(new Tuple<string, string>(file.Replace(dir, string.Empty), text));
                 }
             }
+
+            srcProjectFiles = allProjectFiles.Where(p =>
+                !(p.Item1.Contains($"{Path.DirectorySeparatorChar}test{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}testassets{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}samples{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}perf{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}eng{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}ref{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}submodules{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}stress{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}benchmark{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}benchmarks{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}FunctionalTests{Path.DirectorySeparatorChar}")
+                    || p.Item1.Contains($"{Path.DirectorySeparatorChar}.packages{Path.DirectorySeparatorChar}"))).ToList();
 
             if (Path.GetFileName(input) == "Dependencies.props")
             {
@@ -86,9 +85,41 @@ namespace DepScanner
                     });
                 }
             }
-            else if (Path.GetFileName(input) == "Version.props")
+            else if (Path.GetFileName(input) == "Versions.props")
             {
+                var doc = XDocument.Parse(File.ReadAllText(input));
 
+                foreach (var dep in doc.Descendants().Where(d => d.Name.ToString().EndsWith("Version")))
+                {
+                    var srcFiles = allProjectFiles.Where(s => s.Item2.Contains(dep.Name.LocalName, StringComparison.OrdinalIgnoreCase));
+
+                    if (!srcFiles.Any())
+                    {
+                        // This version isn't a reference
+                        continue;
+                    }
+
+                    foreach (var srcFile in srcFiles)
+                    {
+                        var srcDoc = XDocument.Parse(srcFile.Item2);
+                        var srcReference = srcDoc.Descendants().FirstOrDefault(d => d.Attribute("Version")?.Value.Contains(dep.Name.ToString(), StringComparison.OrdinalIgnoreCase) == true);
+
+                        if (srcReference == null)
+                        {
+                            continue;
+                        }
+
+                        var srcName = srcReference.Attribute("Include").Value;
+
+                        dependencies.Add(new Dependency
+                        {
+                            Name = srcName,
+                            CurrentVersion = new NuGetVersion(dep.Value)
+                        });
+
+                        break;
+                    }
+                }
             }
 
             var providers = new List<Lazy<INuGetResourceProvider>>();
